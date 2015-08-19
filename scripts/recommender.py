@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import math
 import collections
 #import loader
 
@@ -40,9 +41,9 @@ class VideoGraph:
 
 class Video:
 
-  def __init__(self, url, view_cnt = 0, related_video_urls = list()):
+  def __init__(self, url, views_cnt = 0, related_video_urls = list()):
     self.url = url
-    self.view_cnt = int(view_cnt)
+    self.views_cnt = int(views_cnt)
     self.related_videos = []
 
 
@@ -53,18 +54,21 @@ class Recommender:
     self.graph = VideoGraph()
     self.graph.load(fpath)
 
-  def get_related_videos(self, url, max_depth = 3):
+  def get_related_videos(self, url, max_depth = 4, top = 500):
     res = collections.defaultdict(float)
-    self.get_more_related_videos(url, 0, max_depth, res)
-    res = sorted(res.items(), key = lambda t: t[1], reverse = True)
-    return res
-
-  def get_more_related_videos(self, url, depth, max_depth, res):
-    if depth > max_depth: return
-    root_video = self.graph[url]
-    for (video, linked_views_cnt) in root_video.related_videos:
-      res[video] += float(linked_views_cnt) / video.views_cnt
-      self.get_more_related_videos(video.url, depth + 1, max_depth, res)
+    seed = self.graph[url]
+    res = [(seed, 0)]
+    while max_depth != 0:
+      vdict = collections.defaultdict(float, (item for item in res))
+      max_depth -= 1
+      for vs in vdict.keys():
+        common_linked_views_cnt = sum( linked_views_cnt for (_, linked_views_cnt) in vs.related_videos )
+        for (vr, linked_views_cnt) in vs.related_videos:
+          norm_coef = common_linked_views_cnt * math.log(vr.views_cnt)
+          if norm_coef < 100: continue
+          vdict[vr] += float(linked_views_cnt) / norm_coef
+      res = sorted(vdict.items(), key = lambda t: t[1], reverse = True)[:top]
+    return (seed, res)
 
 
 
@@ -76,7 +80,13 @@ if __name__ == '__main__':
   print "The initialization is done"
   while True:
     line = raw_input()
-    (url, max_depth) = line.split()
-    res = recommender.get_related_videos(url, int(max_depth))
-    for (video, rate) in res[:20]:
-      print "\t{0} -- {1}".format(rate, video.url)
+    try:
+      (url, max_depth, top) = line.split()
+      (seed_video, res) = recommender.get_related_videos(url, int(max_depth), int(top))
+      print "Seed video views: {0}".format(seed_video.views_cnt)
+      for (video, rate) in res[:5]:
+        print "\t{0} -- {1} ({2} views)".format(rate, video.url, video.views_cnt)
+    except KeyError:
+      print "No such video url"
+    except ValueError:
+      print "Incorrect input. Usage: url max_depth max_count_for_calc"
